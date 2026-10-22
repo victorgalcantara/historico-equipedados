@@ -1,0 +1,208 @@
+<script>
+/*__DADOS__*/
+(function () {
+  "use strict";
+  var D = window.PP_DADOS || { slides: {} };
+  var W = 1333, H = 750, M = 18;
+  var aberto = null, tip = null;
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function sel(chave) { return '.pp-hit[data-key="' + chave.replace(/"/g, '\\"') + '"]'; }
+
+  function conteudo(p) {
+    var h = '<button type="button" class="x" aria-label="Fechar">×</button><h3>' + esc(p.t) + "</h3>";
+    if (p.per) h += '<div class="per">' + esc(p.per) + "</div>";
+    if (p.d) h += "<p>" + esc(p.d) + "</p>";
+    if (p.li && p.li.length) h += "<h4>Detalhes</h4><ul>" + p.li.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>";
+    if (p.refs && p.refs.length) h += '<h4>Referências online</h4><ul class="refs">' + p.refs.map(function (r) {
+      return '<li><a href="' + esc(r[1]) + '" target="_blank" rel="noopener">' + esc(r[0]) + "</a></li>"; }).join("") + "</ul>";
+    if (p.pastas && p.pastas.length) h += "<h4>Pastas no repositório do projeto</h4>" + p.pastas.map(function (x) {
+      return '<div class="path"><span>' + esc(x) + '</span><button type="button" class="cp" data-path="' + esc(D.root + "\\" + x) + '">Copiar</button></div>'; }).join("");
+    if (p.fonte && p.fonte.length) h += '<div class="fonte">Fonte: ' + esc(p.fonte.join("; ")) + ".</div>";
+    h += '<div class="rodape">Esc ou clique fora para fechar.</div>';
+    return h;
+  }
+
+  function fechar() {
+    if (!aberto) return;
+    aberto.pop.remove();
+    aberto.slide.querySelectorAll(".sel").forEach(function (e) { e.classList.remove("sel"); });
+    aberto.slide.querySelectorAll(".pp-hit.on").forEach(function (e) { e.classList.remove("on"); });
+    aberto = null;
+    if (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains("pp-hit")) document.activeElement.blur();
+  }
+
+  function caixa(slide, chave) {
+    var r = null;
+    var sr = slide.getBoundingClientRect(), scale = sr.width / W;
+    slide.querySelectorAll(sel(chave)).forEach(function (h) {
+      var hr = h.getBoundingClientRect();
+      var x0 = (hr.left - sr.left) / scale, y0 = (hr.top - sr.top) / scale;
+      var x1 = (hr.right - sr.left) / scale, y1 = (hr.bottom - sr.top) / scale;
+      r = r ? { x0: Math.min(r.x0, x0), y0: Math.min(r.y0, y0), x1: Math.max(r.x1, x1), y1: Math.max(r.y1, y1) } : { x0: x0, y0: y0, x1: x1, y1: y1 };
+    });
+    return r;
+  }
+
+  function abrir(btn) {
+    var slide = btn.closest(".pp-slide"), chave = btn.getAttribute("data-key");
+    if (aberto && aberto.chave === chave) { fechar(); return; }
+    fechar(); esconderTip();
+    var partes = chave.split("|"), p = (D.slides[partes[0]] || {})[partes[1]];
+    if (!p) return;
+    (btn.getAttribute("data-hl") || "").split(" ").filter(Boolean).forEach(function (nm) {
+      slide.querySelectorAll('[data-n="' + nm + '"]').forEach(function (e) { e.classList.add("sel"); });
+    });
+    slide.querySelectorAll(sel(chave)).forEach(function (e) { e.classList.add("on"); });
+    var pop = document.createElement("div");
+    pop.className = "pp-pop"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", p.t);
+    pop.innerHTML = conteudo(p);
+    slide.appendChild(pop);
+    var r = caixa(slide, chave), pw = pop.offsetWidth, ph = pop.offsetHeight, g = 16, left, top;
+    if (r.x1 + g + pw <= W - M) left = r.x1 + g;
+    else if (r.x0 - g - pw >= M) left = r.x0 - g - pw;
+    if (left !== undefined) {
+      top = Math.min(Math.max(M, (r.y0 + r.y1) / 2 - ph / 2), H - ph - M);
+    } else {
+      left = Math.min(Math.max(M, (r.x0 + r.x1) / 2 - pw / 2), W - pw - M);
+      top = (r.y1 + g + ph <= H - M) ? r.y1 + g : Math.max(M, r.y0 - g - ph);
+    }
+    pop.style.left = left + "px"; pop.style.top = top + "px";
+    pop.querySelector(".x").addEventListener("click", function (e) { e.stopPropagation(); fechar(); });
+    pop.querySelectorAll(".cp").forEach(function (b) {
+      b.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var txt = b.getAttribute("data-path");
+        var ok = function () { b.textContent = "Copiado"; b.classList.add("ok"); setTimeout(function () { b.textContent = "Copiar"; b.classList.remove("ok"); }, 1600); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, function () {});
+        else { var t = document.createElement("textarea"); t.value = txt; document.body.appendChild(t); t.select(); try { document.execCommand("copy"); ok(); } catch (_) {} t.remove(); }
+      });
+    });
+    aberto = { slide: slide, chave: chave, pop: pop };
+  }
+
+  function esconderTip() { if (tip) { tip.remove(); tip = null; } document.querySelectorAll(".pp-hit.hov").forEach(function (e) { e.classList.remove("hov"); }); }
+  function mostrarTip(btn) {
+    esconderTip();
+    if (aberto && aberto.chave === btn.getAttribute("data-key")) return;
+    var slide = btn.closest(".pp-slide"), chave = btn.getAttribute("data-key");
+    var partes = chave.split("|"), p = (D.slides[partes[0]] || {})[partes[1]];
+    if (!p) return;
+    slide.querySelectorAll(sel(chave)).forEach(function (e) { e.classList.add("hov"); });
+    tip = document.createElement("div"); tip.className = "pp-tip";
+    tip.innerHTML = esc(p.t) + (p.per ? "<small>" + esc(p.per) + "</small>" : "") + "<small>Clique para ver os detalhes</small>";
+    slide.appendChild(tip);
+    var sr = slide.getBoundingClientRect(), br = btn.getBoundingClientRect(), scale = sr.width / W;
+    var x = (br.left + br.right - 2 * sr.left) / (2 * scale), y = (br.top - sr.top) / scale;
+    var tw = tip.offsetWidth, th = tip.offsetHeight;
+    x = Math.min(Math.max(x, tw / 2 + 8), W - tw / 2 - 8);
+    if (y - th - 10 < 8) { y = (br.bottom - sr.top) / scale + th + 18; }
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest(".pp-hit");
+    if (b) { e.preventDefault(); e.stopPropagation(); abrir(b); return; }
+    if (aberto && !(e.target.closest && e.target.closest(".pp-pop"))) fechar();
+  });
+  document.addEventListener("mouseover", function (e) {
+    var b = e.target.closest && e.target.closest(".pp-hit");
+    if (b) mostrarTip(b);
+  });
+  document.addEventListener("mouseout", function (e) {
+    var b = e.target.closest && e.target.closest(".pp-hit");
+    if (b && !(e.relatedTarget && b.contains(e.relatedTarget))) esconderTip();
+  });
+  window.addEventListener("keydown", function (e) {
+    if (aberto && (e.key === "Escape" || e.key === "Esc")) { e.preventDefault(); e.stopImmediatePropagation(); fechar(); }
+  }, true);
+  function ligarReveal() {
+    if (window.Reveal && typeof window.Reveal.on === "function" && window.Reveal.isReady && window.Reveal.isReady()) {
+      window.Reveal.on("slidechanged", function () { fechar(); esconderTip(); });
+    } else setTimeout(ligarReveal, 200);
+  }
+  ligarReveal();
+
+  // Tela original 4: janela do cronograma com deslocamento no tempo e borda inferior ajustável.
+  function iniciarCronograma() {
+    var slide = document.querySelector('.pp-slide[data-original-slide="4"]');
+    if (!slide) return;
+    var X = 355, Y = 155, Wv = 918, H0 = 445, height = H0, zoom = 1;
+    var viewport = document.createElement("div");
+    viewport.className = "pp-time-viewport";
+    viewport.style.cssText = "left:" + X + "px;top:" + Y + "px;width:" + Wv + "px;height:" + H0 + "px";
+    slide.appendChild(viewport);
+    var timeline = [], labels = [], lower = [];
+    Array.from(slide.children).forEach(function (el) {
+      if (el === viewport || !el.matches(".s,.t,.pp-hit")) return;
+      var x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (y >= 150 && y < 605 && x >= X - 2) {
+        var rec = { el: el, x: x, y: y, w: parseFloat(el.style.width) || 0, h: parseFloat(el.style.height) || 0 };
+        timeline.push(rec); viewport.appendChild(el);
+      } else if (y >= 215 && y < 605 && x < X - 2) {
+        labels.push({ el: el, y: y, h: parseFloat(el.style.height) || 0 });
+      } else if (y >= 605 && y < 695) lower.push(el);
+    });
+    var handle = document.createElement("div");
+    handle.className = "pp-time-handle";
+    handle.setAttribute("role", "slider");
+    handle.setAttribute("tabindex", "0");
+    handle.setAttribute("aria-label", "Altura da figura");
+    handle.setAttribute("aria-valuemin", String(H0));
+    handle.setAttribute("aria-valuemax", "500");
+    handle.innerHTML = '<span title="Arraste para ajustar a altura">↕</span>';
+    slide.appendChild(handle);
+    var controls = document.createElement("div");
+    controls.className = "pp-time-controls";
+    controls.innerHTML = '<button type="button" class="pp-time-zoom">Ampliar período</button><label>Transitar no tempo <input type="range" min="0" max="100" value="0" disabled aria-label="Posição no tempo"></label><button type="button" class="pp-time-reset">Visão geral</button>';
+    slide.appendChild(controls);
+    var range = controls.querySelector('input[type="range"]');
+    function draw() {
+      var factor = height / H0, offset = Number(range.value) / 100 * Wv * (zoom - 1);
+      viewport.style.height = height + "px";
+      timeline.forEach(function (r) {
+        r.el.style.left = ((r.x - X) * zoom - offset) + "px";
+        r.el.style.top = ((r.y - Y) * factor) + "px";
+        if (r.w) r.el.style.width = (r.w * zoom) + "px";
+        if (r.h) r.el.style.height = (r.h * factor) + "px";
+      });
+      labels.forEach(function (r) {
+        r.el.style.top = (Y + (r.y - Y) * factor) + "px";
+        if (r.h) r.el.style.height = (r.h * factor) + "px";
+      });
+      handle.style.top = (Y + height + 2) + "px";
+      controls.style.top = (Math.max(645, Y + height + 12)) + "px";
+      handle.setAttribute("aria-valuenow", String(Math.round(height)));
+      lower.forEach(function (el) { el.style.visibility = height > 460 ? "hidden" : ""; });
+      fechar(); esconderTip();
+    }
+    controls.querySelector(".pp-time-zoom").addEventListener("click", function () {
+      zoom = 2; range.disabled = false; draw();
+    });
+    controls.querySelector(".pp-time-reset").addEventListener("click", function () {
+      zoom = 1; range.value = 0; range.disabled = true; height = H0; draw();
+    });
+    range.addEventListener("input", draw);
+    var drag = null;
+    handle.addEventListener("pointerdown", function (e) {
+      drag = { y: e.clientY, h: height };
+      handle.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      var scale = slide.getBoundingClientRect().width / W;
+      height = Math.max(H0, Math.min(500, drag.h + (e.clientY - drag.y) / scale));
+      draw();
+    });
+    handle.addEventListener("pointerup", function () { drag = null; });
+    handle.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault(); e.stopPropagation();
+      height = Math.max(H0, Math.min(500, height + (e.key === "ArrowDown" ? 10 : -10))); draw();
+    });
+    draw();
+  }
+  iniciarCronograma();
+})();
+</script>
